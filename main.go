@@ -3,6 +3,8 @@ package main
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -64,7 +66,7 @@ func sortColos(colos map[string]Colo) []Colo {
 }
 
 // Antananarivo, Madagascar - (TNR)
-var splitColoRe = regexp.MustCompile(`(.*?) - \(([^)]+)\)$`)
+var splitColoRe = regexp.MustCompile(`(.*?)\s+-[^(]+\(([^)]+)\)$`)
 
 func splitColoString(s string) (string, string) {
 	m := splitColoRe.FindStringSubmatch(s)
@@ -87,17 +89,26 @@ func parseStatusPage(r io.Reader) (map[string]Colo, error) {
 		continent := strings.TrimSpace(
 			s.Find(`div.component-inner-container > span.name > span:not([class~="font-small"])`).Text(),
 		)
-		if continent == "Cloudflare Sites and Services" {
+		switch continent {
+		case "Cloudflare Sites and Services":
 			return
+		case "":
+			err = errors.Join(err, errors.New("empty continent"))
 		}
 
 		s.Find("div.child-components-container > div.component-inner-container > span.name").Each(func(i int, s *goquery.Selection) {
-			where, iata := splitColoString(strings.TrimSpace(s.Text()))
+			coloText := strings.TrimSpace(s.Text())
+
+			where, iata := splitColoString(coloText)
+			if where == "" || iata == "" {
+				err = errors.Join(err, fmt.Errorf("error extracting colo data from %s", coloText))
+			}
+
 			m[iata] = Colo{Name: where, Iata: iata, Continent: continent}
 		})
 	})
 
-	return m, nil
+	return m, err
 }
 
 func parseLocationsJSON(r io.Reader) ([]Location, error) {
