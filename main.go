@@ -4,15 +4,22 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+)
+
+const (
+	statusPageURL    = "https://www.cloudflarestatus.com/"
+	locationsPageURL = "https://speed.cloudflare.com/locations"
 )
 
 type Location struct {
@@ -74,7 +81,7 @@ func splitColoString(s string) (string, string) {
 		return "", ""
 	}
 
-	return m[1], m[2]
+	return strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
 }
 
 func parseStatusPage(r io.Reader) (map[string]Colo, error) {
@@ -120,53 +127,73 @@ func parseLocationsJSON(r io.Reader) ([]Location, error) {
 	return locations, nil
 }
 
-func run() error {
-	/*
-		site := "https://www.cloudflarestatus.com/"
-
-		resp, err := http.Get(site)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-	*/
-	fh, err := os.Open("status.html")
-	if err != nil {
-		return err
-	}
-	defer fh.Close()
-
-	coloMap, err := parseStatusPage(fh)
-	if err != nil {
-		return err
-	}
-
-	fh2, err := os.Open("locations.json")
-	if err != nil {
-		return err
-	}
-	defer fh2.Close()
-
-	locations, err := parseLocationsJSON(fh2)
-	if err != nil {
-		return err
-	}
-
+func enrichColoMap(m map[string]Colo, locations []Location) {
 	for _, location := range locations {
-		c, ok := coloMap[location.Iata]
+		c, ok := m[location.Iata]
 		if ok {
 			c.Lat = location.Lat
 			c.Lon = location.Lon
 			c.CCA2 = location.CCA2
 			c.Region = location.Region
 			c.City = location.City
-			coloMap[location.Iata] = c
+			m[location.Iata] = c
 		}
 	}
+}
+
+func run(filename string) error {
+	client := http.Client{}
+
+	// fetch status page
+	req, err := http.NewRequest("GET", statusPageURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("User-Agent", "my little scraper")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("unexpected status code while fetching status page: %d", resp.StatusCode)
+	}
+
+	coloMap, err := parseStatusPage(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	// fetch locations page
+	req, err = http.NewRequest("GET", locationsPageURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("User-Agent", "my little scraper")
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("unexpected status code while fetching locations page: %d", resp.StatusCode)
+	}
+
+	locations, err := parseLocationsJSON(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	// enrich data
+	enrichColoMap(coloMap, locations)
 
 	coloList := sortColos(coloMap)
 
-	if err := MarshalColos(coloList, "colos.json"); err != nil {
+	if err := MarshalColos(coloList, filename); err != nil {
 		return err
 	}
 
@@ -174,7 +201,11 @@ func run() error {
 }
 
 func main() {
-	if err := run(); err != nil {
+	var outputFilename string
+	flag.StringVar(&outputFilename, "output", "colos.json", "Name of the file where to write the colo map")
+	flag.Parse()
+
+	if err := run(outputFilename); err != nil {
 		log.Fatal(err)
 	}
 }
