@@ -34,6 +34,35 @@ type Colo struct {
 	City   string  `json:"city,omitempty"`
 }
 
+func MarshalColos(colos []Colo, filename string) error {
+	fh, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+
+	enc := json.NewEncoder(fh)
+	enc.SetIndent("", "  ")
+	return enc.Encode(colos)
+}
+
+func sortColos(colos map[string]Colo) []Colo {
+	var rv []Colo
+	for _, colo := range colos {
+		rv = append(rv, colo)
+	}
+
+	slices.SortFunc(rv, func(a, b Colo) int {
+		x := cmp.Compare(a.Continent, b.Continent)
+		if x == 0 {
+			return cmp.Compare(a.Name, b.Name)
+		}
+		return x
+	})
+
+	return rv
+}
+
 // Antananarivo, Madagascar - (TNR)
 var splitColoRe = regexp.MustCompile(`(.*?) - \(([^)]+)\)$`)
 
@@ -124,28 +153,9 @@ func run() error {
 		}
 	}
 
-	var coloList []Colo
-	for _, value := range coloMap {
-		coloList = append(coloList, value)
-	}
+	coloList := sortColos(coloMap)
 
-	slices.SortFunc(coloList, func(a, b Colo) int {
-		x := cmp.Compare(a.Continent, b.Continent)
-		if x == 0 {
-			return cmp.Compare(a.Name, b.Name)
-		}
-		return x
-	})
-
-	fh3, err := os.Create("colos.json")
-	if err != nil {
-		return err
-	}
-	defer fh3.Close()
-
-	enc := json.NewEncoder(fh3)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(coloList); err != nil {
+	if err := MarshalColos(coloList, "colos.json"); err != nil {
 		return err
 	}
 
