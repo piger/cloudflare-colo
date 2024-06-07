@@ -1,31 +1,37 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
-	"fmt"
+	"io"
 	"log"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-// {"iata":"TIA","lat":41.4146995544,"lon":19.7206001282,"cca2":"AL","region":"Europe","city":"Tirana"}
-type ColoLocation struct {
-	Iata   string
-	Lat    float64
-	Lon    float64
-	CCA2   string
-	Region string
-	City   string
+type Location struct {
+	Iata   string  `json:"iata"`
+	Lat    float64 `json:"lat"`
+	Lon    float64 `json:"lon"`
+	CCA2   string  `json:"cca2"`
+	Region string  `json:"region"`
+	City   string  `json:"city"`
 }
 
 type Colo struct {
-	Name      string
-	Iata      string
-	Continent string
-	ColoLocation
+	Name      string `json:"name"`
+	Continent string `json:"continent"`
+	Iata      string `json:"iata"`
+
+	Lat    float64 `json:"lat,omitempty"`
+	Lon    float64 `json:"lon,omitempty"`
+	CCA2   string  `json:"cca2,omitempty"`
+	Region string  `json:"region,omitempty"`
+	City   string  `json:"city,omitempty"`
 }
 
 // Antananarivo, Madagascar - (TNR)
@@ -40,16 +46,35 @@ func splitColoString(s string) (string, string) {
 	return m[1], m[2]
 }
 
-func parseLocations() ([]ColoLocation, error) {
-	fh, err := os.Open("locations.json")
-	if err != nil {
-		return nil, err
-	}
-	defer fh.Close()
+func parseStatusPage(r io.Reader) (map[string]Colo, error) {
+	m := make(map[string]Colo)
 
-	var locations []ColoLocation
-	if err := json.NewDecoder(fh).Decode(&locations); err != nil {
-		return nil, err
+	doc, err := goquery.NewDocumentFromReader(r)
+	if err != nil {
+		return m, err
+	}
+
+	doc.Find("div.component-container").Each(func(i int, s *goquery.Selection) {
+		continent := strings.TrimSpace(
+			s.Find(`div.component-inner-container > span.name > span:not([class~="font-small"])`).Text(),
+		)
+		if continent == "Cloudflare Sites and Services" {
+			return
+		}
+
+		s.Find("div.child-components-container > div.component-inner-container > span.name").Each(func(i int, s *goquery.Selection) {
+			where, iata := splitColoString(strings.TrimSpace(s.Text()))
+			m[iata] = Colo{Name: where, Iata: iata, Continent: continent}
+		})
+	})
+
+	return m, nil
+}
+
+func parseLocationsJSON(r io.Reader) ([]Location, error) {
+	var locations []Location
+	if err := json.NewDecoder(r).Decode(&locations); err != nil {
+		return locations, err
 	}
 
 	return locations, nil
@@ -69,51 +94,59 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer fh.Close()
 
-	doc, err := goquery.NewDocumentFromReader(fh)
+	coloMap, err := parseStatusPage(fh)
 	if err != nil {
 		return err
 	}
 
-	colos := make(map[string]Colo)
+	fh2, err := os.Open("locations.json")
+	if err != nil {
+		return err
+	}
+	defer fh2.Close()
 
-	doc.Find("div.component-container").Each(func(i int, s *goquery.Selection) {
-		continent := strings.TrimSpace(
-			s.Find(`div.component-inner-container > span.name > span:not([class~="font-small"])`).Text(),
-		)
-		if continent == "Cloudflare Sites and Services" {
-			return
-		}
-
-		fmt.Printf("# %s\n", continent)
-
-		s.Find("div.child-components-container > div.component-inner-container > span.name").Each(func(i int, s *goquery.Selection) {
-			colo := strings.TrimSpace(s.Text())
-			where, iata := splitColoString(colo)
-			fmt.Printf("- colo=%q where=%q, iata=%q\n", colo, where, iata)
-			colos[iata] = Colo{Name: where, Iata: iata, Continent: continent}
-		})
-	})
-
-	locations, err := parseLocations()
+	locations, err := parseLocationsJSON(fh2)
 	if err != nil {
 		return err
 	}
 
 	for _, location := range locations {
-		c, ok := colos[location.Iata]
+		c, ok := coloMap[location.Iata]
 		if ok {
 			c.Lat = location.Lat
 			c.Lon = location.Lon
 			c.CCA2 = location.CCA2
 			c.Region = location.Region
 			c.City = location.City
-			colos[location.Iata] = c
+			coloMap[location.Iata] = c
 		}
 	}
 
-	for key, value := range colos {
-		fmt.Printf("colo: %+v (key=%q)\n", value, key)
+	var coloList []Colo
+	for _, value := range coloMap {
+		coloList = append(coloList, value)
+	}
+
+	slices.SortFunc(coloList, func(a, b Colo) int {
+		x := cmp.Compare(a.Continent, b.Continent)
+		if x == 0 {
+			return cmp.Compare(a.Name, b.Name)
+		}
+		return x
+	})
+
+	fh3, err := os.Create("colos.json")
+	if err != nil {
+		return err
+	}
+	defer fh3.Close()
+
+	enc := json.NewEncoder(fh3)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(coloList); err != nil {
+		return err
 	}
 
 	return nil
