@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,6 +21,8 @@ import (
 const (
 	statusPageURL    = "https://www.cloudflarestatus.com/"
 	locationsPageURL = "https://speed.cloudflare.com/locations"
+
+	userAgent = "my little scraper"
 )
 
 type Location struct {
@@ -141,54 +144,61 @@ func enrichColoMap(m map[string]Colo, locations []Location) {
 	}
 }
 
-func run(filename string) error {
-	client := http.Client{}
-
-	// fetch status page
-	req, err := http.NewRequest("GET", statusPageURL, nil)
+func fetchPage(ctx context.Context, client *http.Client, url string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	req.Header.Add("User-Agent", "my little scraper")
+	req.Header.Add("User-Agent", userAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("unexpected status code while fetching status page: %d", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status code while fetching URL %s: %d", url, resp.StatusCode)
 	}
 
-	coloMap, err := parseStatusPage(resp.Body)
+	return resp.Body, nil
+}
+
+func getColoMap(ctx context.Context, client *http.Client) (map[string]Colo, error) {
+	body, err := fetchPage(ctx, client, statusPageURL)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+
+	coloMap, err := parseStatusPage(body)
+	return coloMap, err
+}
+
+func getLocations(ctx context.Context, client *http.Client) ([]Location, error) {
+	body, err := fetchPage(ctx, client, locationsPageURL)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+
+	locations, err := parseLocationsJSON(body)
+	return locations, err
+}
+
+func run(filename string) error {
+	ctx := context.Background()
+	client := &http.Client{}
+
+	coloMap, err := getColoMap(ctx, client)
 	if err != nil {
 		return err
 	}
 
-	// fetch locations page
-	req, err = http.NewRequest("GET", locationsPageURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Add("User-Agent", "my little scraper")
-
-	resp, err = client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("unexpected status code while fetching locations page: %d", resp.StatusCode)
-	}
-
-	locations, err := parseLocationsJSON(resp.Body)
+	locations, err := getLocations(ctx, client)
 	if err != nil {
 		return err
 	}
 
-	// enrich data
 	enrichColoMap(coloMap, locations)
 
 	coloList := sortColos(coloMap)
