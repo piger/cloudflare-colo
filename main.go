@@ -46,7 +46,7 @@ type Colo struct {
 	City   string  `json:"city,omitempty"`
 }
 
-func MarshalColos(colos []Colo, filename string) error {
+func marshalColos(colos []Colo, filename string) error {
 	fh, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -203,7 +203,7 @@ func run(filename string) error {
 
 	coloList := sortColos(coloMap)
 
-	if err := MarshalColos(coloList, filename); err != nil {
+	if err := marshalColos(coloList, filename); err != nil {
 		return err
 	}
 
