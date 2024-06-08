@@ -2,8 +2,14 @@ package main
 
 import (
 	"cmp"
+	"context"
+	"flag"
+	"net/http"
+	"os"
 	"testing"
 )
+
+var useLiveData bool
 
 func TestSplitColoString(t *testing.T) {
 	tests := []struct {
@@ -41,4 +47,53 @@ func TestSplitColoString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseStatusPageLive(t *testing.T) {
+	if !useLiveData {
+		t.Skip()
+	}
+
+	tests := []struct {
+		Iata      string
+		Name      string
+		Continent string
+	}{
+		{
+			Iata:      "BHY",
+			Name:      "Beihai, China",
+			Continent: "Asia",
+		},
+	}
+
+	ctx := context.Background()
+	client := &http.Client{}
+	coloMap, err := getColoMap(ctx, client)
+	if err != nil {
+		t.Fatalf("failed to fetch colo map: %s", err)
+	}
+
+	for _, test := range tests {
+		t.Run(test.Iata, func(t *testing.T) {
+			colo, ok := coloMap[test.Iata]
+			if !ok {
+				t.Fatalf("colo %s was not found in map", test.Iata)
+			}
+
+			if cmp.Compare(test.Name, colo.Name) != 0 {
+				t.Fatalf("colo %s expected name %s, got %s", test.Iata, test.Name, colo.Name)
+			}
+
+			if cmp.Compare(test.Continent, colo.Continent) != 0 {
+				t.Fatalf("colo %s expected continent %s, got %s", test.Iata, test.Continent, colo.Continent)
+			}
+		})
+	}
+}
+
+func TestMain(m *testing.M) {
+	flag.BoolVar(&useLiveData, "live", false, "Use live data in tests")
+	flag.Parse()
+
+	os.Exit(m.Run())
 }
