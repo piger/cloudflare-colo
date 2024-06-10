@@ -35,9 +35,9 @@ type Location struct {
 }
 
 type Colo struct {
-	Name      string `json:"name"`
-	Continent string `json:"continent"`
-	Iata      string `json:"iata"`
+	Name  string `json:"name"`
+	Group string `json:"group"`
+	Iata  string `json:"iata"`
 
 	Lat    float64 `json:"lat,omitempty"`
 	Lon    float64 `json:"lon,omitempty"`
@@ -65,7 +65,7 @@ func sortColos(colos map[string]Colo) []Colo {
 	}
 
 	slices.SortFunc(rv, func(a, b Colo) int {
-		x := cmp.Compare(a.Continent, b.Continent)
+		x := cmp.Compare(a.Group, b.Group)
 		if x == 0 {
 			return cmp.Compare(a.Name, b.Name)
 		}
@@ -96,14 +96,14 @@ func parseStatusPage(r io.Reader) (map[string]Colo, error) {
 	}
 
 	doc.Find("div.component-container").Each(func(i int, s *goquery.Selection) {
-		continent := strings.TrimSpace(
+		group := strings.TrimSpace(
 			s.Find(`div.component-inner-container > span.name > span:not([class~="font-small"])`).Text(),
 		)
-		switch continent {
+		switch group {
 		case "Cloudflare Sites and Services":
 			return
 		case "":
-			err = errors.Join(err, errors.New("empty continent"))
+			err = errors.Join(err, errors.New("empty group name"))
 		}
 
 		s.Find("div.child-components-container > div.component-inner-container > span.name").Each(func(i int, s *goquery.Selection) {
@@ -114,7 +114,7 @@ func parseStatusPage(r io.Reader) (map[string]Colo, error) {
 				err = errors.Join(err, fmt.Errorf("error extracting colo data from %s", coloText))
 			}
 
-			m[iata] = Colo{Name: where, Iata: iata, Continent: continent}
+			m[iata] = Colo{Name: where, Iata: iata, Group: group}
 		})
 	})
 

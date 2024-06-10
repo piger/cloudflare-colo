@@ -55,14 +55,14 @@ func TestParseStatusPageLive(t *testing.T) {
 	}
 
 	tests := []struct {
-		Iata      string
-		Name      string
-		Continent string
+		Iata  string
+		Name  string
+		Group string
 	}{
 		{
-			Iata:      "BHY",
-			Name:      "Beihai, China",
-			Continent: "Asia",
+			Iata:  "BHY",
+			Name:  "Beihai, China",
+			Group: "Asia",
 		},
 	}
 
@@ -84,8 +84,8 @@ func TestParseStatusPageLive(t *testing.T) {
 				t.Fatalf("colo %s expected name %s, got %s", test.Iata, test.Name, colo.Name)
 			}
 
-			if cmp.Compare(test.Continent, colo.Continent) != 0 {
-				t.Fatalf("colo %s expected continent %s, got %s", test.Iata, test.Continent, colo.Continent)
+			if cmp.Compare(test.Group, colo.Group) != 0 {
+				t.Fatalf("colo %s expected group %s, got %s", test.Iata, test.Group, colo.Group)
 			}
 		})
 	}
