@@ -1,4 +1,4 @@
-module cloudflare
+module github.com/piger/cloudflare-colo
 
 go 1.22.4
 
